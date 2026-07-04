@@ -3,28 +3,11 @@ import pandas as pd
 import numpy as np
 import pickle
 import re
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from sklearn.feature_extraction.text import CountVectorizer
 import joblib
 import io
+from sklearn.feature_extraction.text import CountVectorizer
 
-# Download required NLTK data (only need to run once)
-@st.cache_resource
-def download_nltk_data():
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        nltk.download('punkt')
-    try:
-        nltk.data.find('corpora/stopwords')
-    except LookupError:
-        nltk.download('stopwords')
-
-download_nltk_data()
-
-# Load the model and vectorizer
+# Load the model
 @st.cache_resource
 def load_model():
     try:
@@ -34,23 +17,21 @@ def load_model():
         st.error(f"Error loading model: {e}")
         return None
 
+# Load vectorizer
 @st.cache_resource
 def load_vectorizer():
     try:
-        # Try loading vectorizer from file if it exists
         with open('vectorizer.pkl', 'rb') as f:
             vectorizer = pickle.load(f)
         return vectorizer
     except FileNotFoundError:
-        # Create a new vectorizer and fit it on the training data
-        st.warning("Vectorizer file not found. Using a default vectorizer.")
-        # Since we don't have the original training data, we'll create a vectorizer
-        # that can be used for prediction (in a real app, you'd want to load the fitted one)
+        st.warning("Vectorizer file not found. Creating a new one...")
+        # Create a default vectorizer
         vectorizer = CountVectorizer(max_features=5000)
-        # Note: In production, you should save and load the fitted vectorizer
+        # Note: In production, you should have a saved fitted vectorizer
         return vectorizer
 
-# Clean text function
+# Clean text without nltk dependency
 def clean_text(text):
     if not isinstance(text, str):
         return ""
@@ -64,9 +45,26 @@ def clean_text(text):
     # Remove extra whitespace
     text = re.sub(r'\s+', ' ', text).strip()
     
+    # Simple stopword removal without nltk
+    stop_words = {'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", "you've", 
+                  "you'll", "you'd", 'your', 'yours', 'yourself', 'he', 'him', 'his', 'himself', 'she', 
+                  "she's", 'her', 'hers', 'herself', 'it', "it's", 'its', 'itself', 'they', 'them', 'their', 
+                  'theirs', 'themselves', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 
+                  'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'will', 'would', 'could', 'should',
+                  'may', 'might', 'must', 'a', 'an', 'the', 'and', 'but', 'or', 'for', 'nor', 'on', 'at', 
+                  'to', 'by', 'in', 'of', 'off', 'so', 'yet', 'up', 'down', 'then', 'now', 'than', 'that',
+                  'this', 'these', 'those', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than',
+                  'too', 'very', 'can', 'will', 'just', 'don', "don't", 'should', "should've", 'now', 'then',
+                  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'were', 'when', 'your', 'can', 'said',
+                  'there', 'use', 'any', 'each', 'which', 'she', 'do', 'how', 'their', 'if', 'will', 'up', 'other',
+                  'about', 'out', 'many', 'then', 'them', 'these', 'so', 'some', 'her', 'would', 'make', 'like',
+                  'him', 'into', 'time', 'has', 'look', 'two', 'more', 'write', 'go', 'see', 'number', 'no', 'way',
+                  'could', 'people', 'my', 'than', 'first', 'water', 'been', 'call', 'who', 'oil', 'its', 'now',
+                  'find', 'long', 'down', 'day', 'did', 'get', 'come', 'made', 'may', 'part', 'could', 'this',
+                  'that', 'with', 'from', 'have', 'are', 'was', 'were', 'been', 'being', 'will', 'would', 'should'}
+    
     # Tokenize and remove stopwords
-    stop_words = set(stopwords.words('english'))
-    tokens = word_tokenize(text)
+    tokens = text.split()
     tokens = [token for token in tokens if token not in stop_words and len(token) > 2]
     
     return ' '.join(tokens)
@@ -79,28 +77,36 @@ def predict_sentiment(text, model, vectorizer):
     # Vectorize
     try:
         text_vectorized = vectorizer.transform([cleaned_text])
-    except:
-        # If vectorizer isn't fitted, we need to handle this
-        # In production, you'd have the fitted vectorizer
-        st.warning("Vectorizer not properly fitted. Using text length as fallback.")
-        # Fallback: use text length as a simple heuristic
-        if len(cleaned_text) > 100:
-            return "positive", 0.7
-        elif len(cleaned_text) > 50:
-            return "neutral", 0.4
-        else:
+        pred = model.predict(text_vectorized)
+        proba = model.predict_proba(text_vectorized)
+        
+        # Get class names
+        class_names = model.classes_
+        pred_label = class_names[pred[0]]
+        pred_prob = np.max(proba[0])
+        
+        return pred_label, pred_prob
+    except Exception as e:
+        # Fallback: use a simple heuristic
+        st.warning(f"Prediction error: {e}. Using fallback method.")
+        # Simple rule-based fallback
+        positive_words = ['good', 'great', 'excellent', 'amazing', 'love', 'best', 'perfect', 'wonderful', 
+                          'awesome', 'fantastic', 'outstanding', 'superb', 'exceptional', 'recommend', 
+                          'satisfied', 'happy', 'impressed', 'quality', 'value', 'worth']
+        negative_words = ['bad', 'terrible', 'poor', 'awful', 'horrible', 'worst', 'disappointed', 'waste', 
+                          'cheap', 'faulty', 'broken', 'useless', 'terrible', 'terrible', 'regret', 'return',
+                          'defective', 'disgusting', 'disappointing', 'problem', 'issue', 'failure']
+        
+        text_lower = text.lower()
+        positive_count = sum(1 for word in positive_words if word in text_lower)
+        negative_count = sum(1 for word in negative_words if word in text_lower)
+        
+        if positive_count > negative_count:
+            return "positive", 0.6
+        elif negative_count > positive_count:
             return "negative", 0.6
-    
-    # Predict
-    pred = model.predict(text_vectorized)
-    proba = model.predict_proba(text_vectorized)
-    
-    # Get class names
-    class_names = model.classes_
-    pred_label = class_names[pred[0]]
-    pred_prob = np.max(proba[0])
-    
-    return pred_label, pred_prob
+        else:
+            return "neutral", 0.4
 
 # Main app
 def main():
@@ -114,11 +120,13 @@ def main():
     vectorizer = load_vectorizer()
     
     if model is None:
-        st.error("Model not found. Please ensure 'sentiment_model.pkl' is in the current directory.")
+        st.error("❌ Model not found. Please ensure 'sentiment_model.pkl' is in the current directory.")
+        st.info("If you're running this app locally, make sure the model file is in the same folder.")
         return
     
     # Sidebar
     st.sidebar.header("Options")
+    st.sidebar.info("This app analyzes the sentiment of product reviews.")
     
     # Tabs
     tab1, tab2, tab3 = st.tabs(["📝 Single Text", "📂 Upload CSV", "ℹ️ About"])
@@ -137,36 +145,39 @@ def main():
         with col1:
             analyze_button = st.button("🔍 Analyze Sentiment", type="primary")
         
-        if analyze_button and text_input:
-            with st.spinner("Analyzing sentiment..."):
-                sentiment, confidence = predict_sentiment(text_input, model, vectorizer)
-                
-                # Display results
-                st.subheader("Results")
-                
-                # Color mapping
-                if sentiment.lower() == "positive":
-                    color = "green"
-                    emoji = "😊"
-                elif sentiment.lower() == "negative":
-                    color = "red"
-                    emoji = "😞"
-                else:
-                    color = "orange"
-                    emoji = "😐"
-                
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    st.metric("Sentiment", f"{emoji} {sentiment.capitalize()}")
-                with col2:
-                    st.metric("Confidence", f"{confidence:.2%}")
-                
-                # Progress bar for confidence
-                st.progress(confidence)
-                
-                # Cleaned text
-                with st.expander("Show cleaned text"):
-                    st.write(clean_text(text_input))
+        if analyze_button:
+            if text_input:
+                with st.spinner("Analyzing sentiment..."):
+                    sentiment, confidence = predict_sentiment(text_input, model, vectorizer)
+                    
+                    # Display results
+                    st.subheader("📊 Results")
+                    
+                    # Color mapping
+                    if sentiment.lower() == "positive":
+                        color = "green"
+                        emoji = "😊"
+                    elif sentiment.lower() == "negative":
+                        color = "red"
+                        emoji = "😞"
+                    else:
+                        color = "orange"
+                        emoji = "😐"
+                    
+                    col1, col2 = st.columns([1, 1])
+                    with col1:
+                        st.metric("Sentiment", f"{emoji} {sentiment.capitalize()}")
+                    with col2:
+                        st.metric("Confidence", f"{confidence:.2%}")
+                    
+                    # Progress bar for confidence
+                    st.progress(confidence)
+                    
+                    # Display cleaned text
+                    with st.expander("🔍 Show cleaned text"):
+                        st.code(clean_text(text_input), language="text")
+            else:
+                st.warning("⚠️ Please enter some text to analyze.")
     
     with tab2:
         st.header("Bulk Sentiment Analysis")
@@ -177,7 +188,7 @@ def main():
         if uploaded_file is not None:
             try:
                 df = pd.read_csv(uploaded_file)
-                st.write("Preview of uploaded data:")
+                st.write("📄 Preview of uploaded data:")
                 st.dataframe(df.head())
                 
                 # Let user select text column
@@ -188,7 +199,7 @@ def main():
                         text_columns
                     )
                     
-                    if st.button("Analyze All Reviews"):
+                    if st.button("🚀 Analyze All Reviews", type="primary"):
                         with st.spinner("Analyzing all reviews..."):
                             # Process each review
                             sentiments = []
@@ -208,18 +219,18 @@ def main():
                             df['confidence'] = confidences
                             
                             # Display results
-                            st.subheader("Analysis Results")
+                            st.subheader("📊 Analysis Results")
                             
                             # Summary statistics
-                            col1, col2, col3 = st.columns(3)
                             sentiment_counts = df['sentiment'].value_counts()
                             
+                            col1, col2, col3 = st.columns(3)
                             with col1:
-                                st.metric("Positive", sentiment_counts.get('positive', 0))
+                                st.metric("😊 Positive", sentiment_counts.get('positive', 0))
                             with col2:
-                                st.metric("Neutral", sentiment_counts.get('neutral', 0))
+                                st.metric("😐 Neutral", sentiment_counts.get('neutral', 0))
                             with col3:
-                                st.metric("Negative", sentiment_counts.get('negative', 0))
+                                st.metric("😞 Negative", sentiment_counts.get('negative', 0))
                             
                             # Display full results
                             st.dataframe(df)
@@ -234,17 +245,17 @@ def main():
                                 mime="text/csv"
                             )
                             
-                            # Simple chart
+                            # Chart
                             if len(sentiment_counts) > 0:
                                 st.bar_chart(sentiment_counts)
                 else:
-                    st.warning("No text columns found in the uploaded file.")
+                    st.warning("⚠️ No text columns found in the uploaded file.")
                     
             except Exception as e:
                 st.error(f"Error reading file: {e}")
     
     with tab3:
-        st.header("About This App")
+        st.header("ℹ️ About This App")
         st.markdown("""
         ### Sentiment Analysis Model
         
@@ -253,7 +264,7 @@ def main():
         **Model Details:**
         - **Algorithm:** Multinomial Naive Bayes
         - **Classes:** Negative, Neutral, Positive
-        - **Features:** Text preprocessing with stopword removal and tokenization
+        - **Features:** Text preprocessing with stopword removal
         
         **How It Works:**
         1. The app cleans the input text (lowercase, removes punctuation and stopwords)
@@ -262,9 +273,9 @@ def main():
         4. Results are displayed with confidence scores
         
         **Usage:**
-        - Analyze single reviews by typing or pasting text
-        - Upload CSV files for bulk analysis
-        - Results can be downloaded as CSV
+        - 📝 Analyze single reviews by typing or pasting text
+        - 📂 Upload CSV files for bulk analysis
+        - 📥 Results can be downloaded as CSV
         """)
         
         # Display sample reviews
@@ -277,12 +288,14 @@ def main():
             
             for review, expected in sample_reviews:
                 sentiment, confidence = predict_sentiment(review, model, vectorizer)
-                col1, col2 = st.columns([3, 1])
+                col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
                     st.write(f"📝 {review}")
                 with col2:
                     st.write(f"**Predicted:** {sentiment}")
+                with col3:
                     st.write(f"**Confidence:** {confidence:.2%}")
+                st.divider()
 
 if __name__ == "__main__":
     main()
