@@ -232,8 +232,6 @@ Upcoming
 
 **Nikhil Dongare**
 
-Aspiring Data Scientist | Machine Learning Engineer
-
 GitHub:
 https://github.com/Nikhildongare123
 
