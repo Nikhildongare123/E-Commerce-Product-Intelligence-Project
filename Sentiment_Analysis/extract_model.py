@@ -20,7 +20,7 @@ def clean_text(text):
 def create_model_from_reviews():
     """Create and train the sentiment analysis model"""
     print("="*60)
-    print("🚀 Starting Sentiment Model Training")
+    print("Starting Sentiment Model Training")
     print("="*60)
     
     # Find the CSV file
@@ -34,20 +34,20 @@ def create_model_from_reviews():
     df = None
     for path in possible_paths:
         if os.path.exists(path):
-            print(f"✅ Found file at: {path}")
+            print(f"Found file at: {path}")
             df = pd.read_csv(path)
             break
     
     if df is None:
-        print("❌ ERROR: reviews_cleaned.csv not found!")
+        print("ERROR: reviews_cleaned.csv not found!")
         print(f"Current directory: {os.getcwd()}")
         print(f"Files: {os.listdir('.')}")
         return
     
-    print(f"📊 Loaded {len(df)} reviews")
+    print(f"Loaded {len(df)} reviews")
     
     # Prepare the data
-    print("🔄 Preparing data...")
+    print("Preparing data...")
     df['cleaned_text'] = df['review_text'].apply(clean_text)
     
     # Map ratings to sentiment
@@ -62,11 +62,11 @@ def create_model_from_reviews():
     df['sentiment'] = df['rating'].apply(rating_to_sentiment)
     
     # Print distribution
-    print("\n📊 Sentiment Distribution:")
+    print("Sentiment Distribution:")
     print(df['sentiment'].value_counts())
     
     # Create and fit vectorizer
-    print("\n🔄 Creating vectorizer...")
+    print("Creating vectorizer...")
     vectorizer = CountVectorizer(max_features=5000, stop_words='english')
     X = vectorizer.fit_transform(df['cleaned_text'])
     y = df['sentiment']
@@ -75,35 +75,35 @@ def create_model_from_reviews():
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
-    print(f"📊 Training set: {X_train.shape[0]} samples")
-    print(f"📊 Test set: {X_test.shape[0]} samples")
+    print(f"Training set: {X_train.shape[0]} samples")
+    print(f"Test set: {X_test.shape[0]} samples")
     
     # Train model
-    print("\n🔄 Training model...")
+    print("Training model...")
     model = MultinomialNB()
     model.fit(X_train, y_train)
     
     # Evaluate
-    print("\n📊 Model Evaluation:")
+    print("Model Evaluation:")
     y_pred = model.predict(X_test)
     print(f"Accuracy: {accuracy_score(y_test, y_pred):.2%}")
-    print("\nClassification Report:")
+    print("Classification Report:")
     print(classification_report(y_test, y_pred))
     
     # Save model and vectorizer
-    print("\n💾 Saving model...")
+    print("Saving model...")
     joblib.dump(model, 'sentiment_model.pkl')
     
-    print("💾 Saving vectorizer...")
+    print("Saving vectorizer...")
     with open('vectorizer.pkl', 'wb') as f:
         pickle.dump(vectorizer, f)
     
-    print("\n✅ Model and vectorizer saved successfully!")
+    print("Model and vectorizer saved successfully!")
     print(f"Model classes: {model.classes_}")
     print(f"Vectorizer features: {len(vectorizer.get_feature_names_out())}")
     
     # Test the model
-    print("\n🔍 Testing model with sample reviews:")
+    print("Testing model with sample reviews:")
     test_texts = [
         "This product is amazing! I absolutely love it!",
         "It's okay, nothing special. It works fine.",
@@ -115,12 +115,13 @@ def create_model_from_reviews():
         X_test_sample = vectorizer.transform([cleaned])
         pred = model.predict(X_test_sample)[0]
         prob = model.predict_proba(X_test_sample)
-        print(f"\nText: {text}")
+        print(f"Text: {text}")
         print(f"Predicted: {pred}")
         print(f"Confidence: {max(prob[0]):.2%}")
+        print("-" * 40)
     
-    print("\n" + "="*60)
-    print("✅ Training Complete!")
+    print("="*60)
+    print("Training Complete!")
     print("="*60)
 
 if __name__ == "__main__":
