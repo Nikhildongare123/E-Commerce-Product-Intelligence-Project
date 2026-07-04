@@ -1,25 +1,43 @@
 import pickle
 import joblib
 import pandas as pd
+import re
+import os
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.naive_bayes import MultinomialNB
 
-# This function extracts the model from your reviews data
+# Clean text function
+def clean_text(text):
+    if not isinstance(text, str):
+        return ""
+    text = text.lower()
+    text = re.sub(r'[^a-zA-Z\s]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
 def create_model_from_reviews():
     print("Loading reviews data...")
-    # Load the reviews data
-    df = pd.read_csv('reviews_cleaned.csv')
     
-    # Clean text function (without nltk)
-    import re
+    # Try multiple possible paths for the CSV file
+    possible_paths = [
+        'reviews_cleaned.csv',
+        '../reviews_cleaned.csv',  # Parent directory
+        '../../reviews_cleaned.csv',  # Two levels up
+        '/mount/src/e-commerce-product-intelligence-project/reviews_cleaned.csv',  # Full path in Streamlit Cloud
+    ]
     
-    def clean_text(text):
-        if not isinstance(text, str):
-            return ""
-        text = text.lower()
-        text = re.sub(r'[^a-zA-Z\s]', '', text)
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
+    df = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            print(f"Found file at: {path}")
+            df = pd.read_csv(path)
+            break
+    
+    if df is None:
+        print("ERROR: reviews_cleaned.csv not found in any of the expected locations.")
+        print("Current directory:", os.getcwd())
+        print("Files in current directory:", os.listdir('.'))
+        return
     
     # Prepare the data
     print("Preparing data...")
