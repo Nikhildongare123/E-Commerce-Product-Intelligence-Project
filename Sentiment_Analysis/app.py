@@ -2,8 +2,16 @@ import streamlit as st
 import pickle
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import re
+import matplotlib.pyplot as plt
+from collections import Counter
+
+# Try to import plotly, fallback to matplotlib if not available
+try:
+    import plotly.express as px
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 
 # Page configuration
 st.set_page_config(
@@ -114,21 +122,6 @@ st.markdown("""
         color: #1a1a2e !important;
         font-weight: 600 !important;
     }
-    
-    /* Progress bar for IDF */
-    .idf-bar {
-        background: #e9ecef;
-        border-radius: 4px;
-        height: 6px;
-        margin: 4px 0;
-    }
-    
-    .idf-bar-fill {
-        background: #4a90d9;
-        height: 100%;
-        border-radius: 4px;
-        transition: width 0.3s;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -155,11 +148,6 @@ def load_vectorizer():
         st.error(f"❌ **Unexpected Error**\n\n{str(e)}")
         return None
 
-vectorizer = load_vectorizer()
-
-if vectorizer is None:
-    st.stop()
-
 # Helper function to safely extract attributes
 def safe_get_attr(obj, attr, default="N/A"):
     try:
@@ -176,14 +164,12 @@ def get_vocabulary(v):
         if hasattr(v, 'vocabulary_'):
             return v.vocabulary_
         elif hasattr(v, 'get_feature_names_out'):
-            # For newer sklearn versions
             try:
                 features = v.get_feature_names_out()
                 return {feature: idx for idx, feature in enumerate(features)}
             except:
                 pass
         elif hasattr(v, '_tfidf') and hasattr(v._tfidf, 'idf_'):
-            # Try to reconstruct from idf
             idf_len = len(v._tfidf.idf_)
             return {f"term_{i}": i for i in range(idf_len)}
         return {}
@@ -200,6 +186,11 @@ def get_idf_values(v):
         return None
     except:
         return None
+
+vectorizer = load_vectorizer()
+
+if vectorizer is None:
+    st.stop()
 
 # --- Sidebar ---
 with st.sidebar:
@@ -268,7 +259,6 @@ with tab1:
         st.markdown("#### 📖 Complete Vocabulary")
         
         if vocab:
-            # Convert vocab to DataFrame
             vocab_items = sorted(vocab.items(), key=lambda x: x[1])
             vocab_df = pd.DataFrame(vocab_items, columns=["Word", "Index"])
             vocab_df["Word Length"] = vocab_df["Word"].str.len()
@@ -303,7 +293,6 @@ with tab1:
             st.metric("Longest Word", f"{max_len} chars")
             st.metric("Shortest Word", f"{min_len} chars")
             
-            # Top words by length
             st.markdown("---")
             st.markdown("#### 🔤 Longest Terms")
             longest_terms = sorted(vocab.items(), key=lambda x: len(x[0]), reverse=True)[:10]
@@ -322,15 +311,12 @@ with tab2:
     idf_values = get_idf_values(vectorizer)
     
     if idf_values is not None and len(idf_values) > 0:
-        # Create DataFrame with words and their IDF values
         if vocab:
-            # Use vocabulary if available
             idf_df = pd.DataFrame({
                 "Word": list(vocab.keys())[:len(idf_values)],
                 "IDF": idf_values
             })
         else:
-            # Create generic indices
             idf_df = pd.DataFrame({
                 "Word": [f"term_{i}" for i in range(len(idf_values))],
                 "IDF": idf_values
@@ -341,28 +327,21 @@ with tab2:
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            # Histogram of IDF values
-            fig = px.histogram(
-                idf_df,
-                x="IDF",
-                nbins=30,
-                title="Distribution of IDF Values",
-                color_discrete_sequence=["#4a90d9"]
-            )
-            fig.update_layout(
-                plot_bgcolor="white",
-                paper_bgcolor="white",
-                xaxis_title="IDF Score",
-                yaxis_title="Frequency",
-                height=400,
-                showlegend=False,
-            )
-            fig.update_xaxis(gridcolor="#f1f3f5")
-            fig.update_yaxis(gridcolor="#f1f3f5")
-            st.plotly_chart(fig, use_container_width=True)
+            st.markdown("#### 📈 IDF Distribution")
+            
+            # Use matplotlib for histogram
+            fig, ax = plt.subplots(figsize=(10, 4))
+            ax.hist(idf_df["IDF"], bins=30, color='#4a90d9', edgecolor='white', alpha=0.8)
+            ax.set_xlabel("IDF Score")
+            ax.set_ylabel("Frequency")
+            ax.set_title("Distribution of IDF Values")
+            ax.grid(True, alpha=0.3)
+            ax.set_facecolor('#f8f9fa')
+            fig.patch.set_facecolor('white')
+            st.pyplot(fig)
+            plt.close()
         
         with col2:
-            # Top terms by IDF (most important)
             st.markdown("#### ⬆️ Most Important Terms (High IDF)")
             top_idf = idf_df.nlargest(15, "IDF")
             for _, row in top_idf.iterrows():
@@ -393,7 +372,6 @@ with tab3:
             search_type = st.selectbox("Search type:", ["Contains", "Starts with", "Ends with", "Exact match", "Regex"])
         
         if search_term:
-            # Filter vocabulary
             filtered_vocab = {}
             
             for word, idx in vocab.items():
@@ -450,7 +428,6 @@ with tab4:
         for key, value in stats.items():
             st.markdown(f"**{key}:** `{value}`")
         
-        # Additional info
         if hasattr(vectorizer, 'n_features_in_'):
             st.markdown(f"**Features In:** `{vectorizer.n_features_in_}`")
         
@@ -464,7 +441,6 @@ with tab4:
         st.markdown("#### 🏷️ Sample Terms")
         
         if vocab:
-            # Show first 50 terms
             sample_terms = list(vocab.keys())[:50]
             sample_terms_html = "".join([f'<span class="word-item">{term}</span>' for term in sample_terms])
             st.markdown(f'<div style="padding: 0.5rem 0;">{sample_terms_html}</div>', unsafe_allow_html=True)
@@ -474,33 +450,22 @@ with tab4:
         
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Additional row for term length distribution
     if vocab:
         st.markdown('<div class="card" style="margin-top: 1rem;">', unsafe_allow_html=True)
         st.markdown("#### 📏 Term Length Distribution")
         
-        # Create term length data
         lengths = [len(word) for word in vocab.keys()]
-        length_df = pd.DataFrame({"Word Length": lengths})
         
-        fig = px.histogram(
-            length_df,
-            x="Word Length",
-            nbins=20,
-            title="Distribution of Term Lengths",
-            color_discrete_sequence=["#2ecc71"]
-        )
-        fig.update_layout(
-            plot_bgcolor="white",
-            paper_bgcolor="white",
-            xaxis_title="Number of Characters",
-            yaxis_title="Frequency",
-            height=300,
-            showlegend=False,
-        )
-        fig.update_xaxis(gridcolor="#f1f3f5")
-        fig.update_yaxis(gridcolor="#f1f3f5")
-        st.plotly_chart(fig, use_container_width=True)
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.hist(lengths, bins=20, color='#2ecc71', edgecolor='white', alpha=0.8)
+        ax.set_xlabel("Number of Characters")
+        ax.set_ylabel("Frequency")
+        ax.set_title("Distribution of Term Lengths")
+        ax.grid(True, alpha=0.3)
+        ax.set_facecolor('#f8f9fa')
+        fig.patch.set_facecolor('white')
+        st.pyplot(fig)
+        plt.close()
         
         st.markdown('</div>', unsafe_allow_html=True)
 
