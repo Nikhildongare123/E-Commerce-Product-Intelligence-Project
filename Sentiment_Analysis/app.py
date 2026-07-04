@@ -1,13 +1,13 @@
 import streamlit as st
 import pickle
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
 import pandas as pd
 import plotly.express as px
+import re
 
 # Page configuration
 st.set_page_config(
-    page_title="TF-IDF Analyzer",
+    page_title="TF-IDF Vectorizer Analyzer",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -114,10 +114,25 @@ st.markdown("""
         color: #1a1a2e !important;
         font-weight: 600 !important;
     }
+    
+    /* Progress bar for IDF */
+    .idf-bar {
+        background: #e9ecef;
+        border-radius: 4px;
+        height: 6px;
+        margin: 4px 0;
+    }
+    
+    .idf-bar-fill {
+        background: #4a90d9;
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Load the TF-IDF vectorizer
+# Load the TF-IDF vectorizer with comprehensive error handling
 @st.cache_resource
 def load_vectorizer():
     try:
@@ -125,10 +140,19 @@ def load_vectorizer():
             vectorizer = pickle.load(f)
         return vectorizer
     except FileNotFoundError:
-        st.error("❌ `tfidf.pkl` not found. Please ensure the file is in the same directory.")
+        st.error("❌ **File Not Found**\n\n`tfidf.pkl` not found in the current directory. Please ensure the file exists.")
+        return None
+    except pickle.UnpicklingError:
+        st.error("❌ **Corrupted File**\n\nThe file appears to be corrupted or not a valid pickle file.")
+        return None
+    except ModuleNotFoundError as e:
+        st.error(f"❌ **Missing Dependency**\n\nRequired module not found: `{e.name}`\n\nTry installing it with: `pip install {e.name}`")
+        return None
+    except AttributeError as e:
+        st.error(f"❌ **Attribute Error**\n\n{str(e)}\n\nThe pickle file may have been created with a different version of scikit-learn.")
         return None
     except Exception as e:
-        st.error(f"❌ Error loading file: {str(e)}")
+        st.error(f"❌ **Unexpected Error**\n\n{str(e)}")
         return None
 
 vectorizer = load_vectorizer()
@@ -136,12 +160,53 @@ vectorizer = load_vectorizer()
 if vectorizer is None:
     st.stop()
 
+# Helper function to safely extract attributes
+def safe_get_attr(obj, attr, default="N/A"):
+    try:
+        value = getattr(obj, attr, default)
+        if callable(value):
+            return "Callable"
+        return value
+    except:
+        return default
+
+# Helper to get vocabulary
+def get_vocabulary(v):
+    try:
+        if hasattr(v, 'vocabulary_'):
+            return v.vocabulary_
+        elif hasattr(v, 'get_feature_names_out'):
+            # For newer sklearn versions
+            try:
+                features = v.get_feature_names_out()
+                return {feature: idx for idx, feature in enumerate(features)}
+            except:
+                pass
+        elif hasattr(v, '_tfidf') and hasattr(v._tfidf, 'idf_'):
+            # Try to reconstruct from idf
+            idf_len = len(v._tfidf.idf_)
+            return {f"term_{i}": i for i in range(idf_len)}
+        return {}
+    except:
+        return {}
+
+# Helper to get IDF values
+def get_idf_values(v):
+    try:
+        if hasattr(v, '_tfidf') and hasattr(v._tfidf, 'idf_'):
+            return v._tfidf.idf_
+        elif hasattr(v, 'idf_'):
+            return v.idf_
+        return None
+    except:
+        return None
+
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("### ⚙️ Configuration")
     
     # Get vocabulary
-    vocab = vectorizer.vocabulary_
+    vocab = get_vocabulary(vectorizer)
     vocab_size = len(vocab)
     
     st.markdown(f"""
@@ -156,19 +221,23 @@ with st.sidebar:
     st.markdown("### 📋 Parameters")
     
     params = {
-        "Analyzer": vectorizer.analyzer if hasattr(vectorizer, 'analyzer') else "word",
-        "Max DF": vectorizer.max_df if hasattr(vectorizer, 'max_df') else "1.0",
-        "Min DF": vectorizer.min_df if hasattr(vectorizer, 'min_df') else "1",
-        "Max Features": vectorizer.max_features if hasattr(vectorizer, 'max_features') else "None",
-        "NGram Range": vectorizer.ngram_range if hasattr(vectorizer, 'ngram_range') else "(1, 1)",
+        "Analyzer": safe_get_attr(vectorizer, 'analyzer'),
+        "Max DF": safe_get_attr(vectorizer, 'max_df'),
+        "Min DF": safe_get_attr(vectorizer, 'min_df'),
+        "Max Features": safe_get_attr(vectorizer, 'max_features'),
+        "NGram Range": safe_get_attr(vectorizer, 'ngram_range'),
         "Stop Words": "Enabled" if vectorizer.stop_words is not None else "Disabled",
-        "Use IDF": vectorizer.use_idf if hasattr(vectorizer, 'use_idf') else True,
-        "Smooth IDF": vectorizer.smooth_idf if hasattr(vectorizer, 'smooth_idf') else True,
-        "Sublinear TF": vectorizer.sublinear_tf if hasattr(vectorizer, 'sublinear_tf') else False,
+        "Use IDF": safe_get_attr(vectorizer, 'use_idf'),
+        "Smooth IDF": safe_get_attr(vectorizer, 'smooth_idf'),
+        "Sublinear TF": safe_get_attr(vectorizer, 'sublinear_tf'),
     }
     
     for key, value in params.items():
         st.markdown(f"**{key}:** `{value}`")
+    
+    # Sklearn version
+    if hasattr(vectorizer, '_sklearn_version'):
+        st.markdown(f"**Sklearn Version:** `{vectorizer._sklearn_version}`")
     
     st.markdown("---")
     st.markdown("""
@@ -198,43 +267,50 @@ with tab1:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("#### 📖 Complete Vocabulary")
         
-        # Convert vocab to DataFrame
-        vocab_items = sorted(vocab.items(), key=lambda x: x[1])
-        vocab_df = pd.DataFrame(vocab_items, columns=["Word", "Index"])
-        vocab_df["Word Length"] = vocab_df["Word"].str.len()
+        if vocab:
+            # Convert vocab to DataFrame
+            vocab_items = sorted(vocab.items(), key=lambda x: x[1])
+            vocab_df = pd.DataFrame(vocab_items, columns=["Word", "Index"])
+            vocab_df["Word Length"] = vocab_df["Word"].str.len()
+            
+            st.dataframe(
+                vocab_df,
+                use_container_width=True,
+                height=500,
+                column_config={
+                    "Word": st.column_config.TextColumn("Word", width="medium"),
+                    "Index": st.column_config.NumberColumn("Index", width="small"),
+                    "Word Length": st.column_config.NumberColumn("Length", width="small"),
+                }
+            )
+            st.caption(f"Showing {len(vocab_df):,} unique terms")
+        else:
+            st.warning("No vocabulary found in the vectorizer.")
         
-        st.dataframe(
-            vocab_df,
-            use_container_width=True,
-            height=500,
-            column_config={
-                "Word": st.column_config.TextColumn("Word", width="medium"),
-                "Index": st.column_config.NumberColumn("Index", width="small"),
-                "Word Length": st.column_config.NumberColumn("Length", width="small"),
-            }
-        )
-        st.caption(f"Showing {len(vocab_df):,} unique terms")
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("#### 📝 Word Statistics")
         
-        # Basic stats
-        avg_len = vocab_df["Word Length"].mean()
-        max_len = vocab_df["Word Length"].max()
-        min_len = vocab_df["Word Length"].min()
-        
-        st.metric("Average Word Length", f"{avg_len:.2f}")
-        st.metric("Longest Word", f"{max_len} chars")
-        st.metric("Shortest Word", f"{min_len} chars")
-        
-        # Top words by length
-        st.markdown("---")
-        st.markdown("#### 🔤 Longest Terms")
-        longest_terms = vocab_df.nlargest(10, "Word Length")
-        for _, row in longest_terms.iterrows():
-            st.markdown(f"`{row['Word']}` ({row['Word Length']} chars)")
+        if vocab:
+            words = list(vocab.keys())
+            avg_len = np.mean([len(w) for w in words])
+            max_len = max([len(w) for w in words])
+            min_len = min([len(w) for w in words])
+            
+            st.metric("Average Word Length", f"{avg_len:.2f}")
+            st.metric("Longest Word", f"{max_len} chars")
+            st.metric("Shortest Word", f"{min_len} chars")
+            
+            # Top words by length
+            st.markdown("---")
+            st.markdown("#### 🔤 Longest Terms")
+            longest_terms = sorted(vocab.items(), key=lambda x: len(x[0]), reverse=True)[:10]
+            for word, idx in longest_terms:
+                st.markdown(f"`{word}` ({len(word)} chars)")
+        else:
+            st.info("No vocabulary data available.")
         
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -243,16 +319,23 @@ with tab2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown("#### 📊 IDF Weights Distribution")
     
-    # Check if idf_ exists
-    if hasattr(vectorizer, '_tfidf') and hasattr(vectorizer._tfidf, 'idf_'):
-        idf_values = vectorizer._tfidf.idf_
-        
+    idf_values = get_idf_values(vectorizer)
+    
+    if idf_values is not None and len(idf_values) > 0:
         # Create DataFrame with words and their IDF values
-        idf_df = pd.DataFrame({
-            "Word": list(vocab.keys()),
-            "IDF": idf_values,
-            "Log_IDF": np.log(idf_values)
-        })
+        if vocab:
+            # Use vocabulary if available
+            idf_df = pd.DataFrame({
+                "Word": list(vocab.keys())[:len(idf_values)],
+                "IDF": idf_values
+            })
+        else:
+            # Create generic indices
+            idf_df = pd.DataFrame({
+                "Word": [f"term_{i}" for i in range(len(idf_values))],
+                "IDF": idf_values
+            })
+        
         idf_df = idf_df.sort_values("IDF", ascending=False)
         
         col1, col2 = st.columns([2, 1])
@@ -290,7 +373,6 @@ with tab2:
             bottom_idf = idf_df.nsmallest(15, "IDF")
             for _, row in bottom_idf.iterrows():
                 st.markdown(f"`{row['Word']}` → {row['IDF']:.3f}")
-    
     else:
         st.info("ℹ️ IDF weights are not available in this vectorizer.")
     
@@ -301,39 +383,49 @@ with tab3:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown("#### 🔍 Search Terms")
     
-    search_col1, search_col2 = st.columns([3, 1])
-    
-    with search_col1:
-        search_term = st.text_input("Search for a term:", placeholder="e.g., 'quality', 'price', 'product'")
-    
-    with search_col2:
-        search_type = st.selectbox("Search type:", ["Contains", "Starts with", "Ends with", "Exact match"])
-    
-    if search_term:
-        # Filter vocabulary
-        filtered_vocab = {}
+    if vocab:
+        search_col1, search_col2 = st.columns([3, 1])
         
-        for word, idx in vocab.items():
-            if search_type == "Contains" and search_term.lower() in word.lower():
-                filtered_vocab[word] = idx
-            elif search_type == "Starts with" and word.lower().startswith(search_term.lower()):
-                filtered_vocab[word] = idx
-            elif search_type == "Ends with" and word.lower().endswith(search_term.lower()):
-                filtered_vocab[word] = idx
-            elif search_type == "Exact match" and word.lower() == search_term.lower():
-                filtered_vocab[word] = idx
+        with search_col1:
+            search_term = st.text_input("Search for a term:", placeholder="e.g., 'quality', 'price', 'product'")
         
-        if filtered_vocab:
-            filtered_df = pd.DataFrame(
-                sorted(filtered_vocab.items(), key=lambda x: x[1]),
-                columns=["Word", "Index"]
-            )
-            st.dataframe(filtered_df, use_container_width=True)
-            st.caption(f"Found {len(filtered_df)} matching terms")
+        with search_col2:
+            search_type = st.selectbox("Search type:", ["Contains", "Starts with", "Ends with", "Exact match", "Regex"])
+        
+        if search_term:
+            # Filter vocabulary
+            filtered_vocab = {}
+            
+            for word, idx in vocab.items():
+                if search_type == "Contains" and search_term.lower() in word.lower():
+                    filtered_vocab[word] = idx
+                elif search_type == "Starts with" and word.lower().startswith(search_term.lower()):
+                    filtered_vocab[word] = idx
+                elif search_type == "Ends with" and word.lower().endswith(search_term.lower()):
+                    filtered_vocab[word] = idx
+                elif search_type == "Exact match" and word.lower() == search_term.lower():
+                    filtered_vocab[word] = idx
+                elif search_type == "Regex":
+                    try:
+                        if re.search(search_term, word, re.IGNORECASE):
+                            filtered_vocab[word] = idx
+                    except:
+                        st.warning("Invalid regex pattern.")
+                        break
+            
+            if filtered_vocab:
+                filtered_df = pd.DataFrame(
+                    sorted(filtered_vocab.items(), key=lambda x: x[1]),
+                    columns=["Word", "Index"]
+                )
+                st.dataframe(filtered_df, use_container_width=True)
+                st.caption(f"Found {len(filtered_df)} matching terms")
+            else:
+                st.warning("No matching terms found.")
         else:
-            st.warning("No matching terms found.")
+            st.info("💡 Enter a search term above to filter the vocabulary.")
     else:
-        st.info("💡 Enter a search term above to filter the vocabulary.")
+        st.warning("No vocabulary available for searching.")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -346,19 +438,24 @@ with tab4:
         st.markdown("#### 📊 Dataset Statistics")
         
         stats = {
-            "Total Vocabulary Size": len(vocab),
-            "Unique Terms": len(vocab),
-            "Analyzer Type": vectorizer.analyzer if hasattr(vectorizer, 'analyzer') else "word",
-            "NGram Range": vectorizer.ngram_range if hasattr(vectorizer, 'ngram_range') else "(1, 1)",
+            "Total Vocabulary Size": len(vocab) if vocab else 0,
+            "Analyzer Type": safe_get_attr(vectorizer, 'analyzer'),
+            "NGram Range": safe_get_attr(vectorizer, 'ngram_range'),
             "Stop Words": "Custom" if vectorizer.stop_words is not None else "None",
+            "Lowercase": safe_get_attr(vectorizer, 'lowercase'),
+            "Binary": safe_get_attr(vectorizer, 'binary'),
+            "Norm": safe_get_attr(vectorizer, 'norm'),
         }
         
         for key, value in stats.items():
             st.markdown(f"**{key}:** `{value}`")
         
-        # Additional info if available
+        # Additional info
         if hasattr(vectorizer, 'n_features_in_'):
             st.markdown(f"**Features In:** `{vectorizer.n_features_in_}`")
+        
+        if hasattr(vectorizer, 'fixed_vocabulary_'):
+            st.markdown(f"**Fixed Vocabulary:** `{vectorizer.fixed_vocabulary_}`")
         
         st.markdown('</div>', unsafe_allow_html=True)
     
@@ -366,42 +463,61 @@ with tab4:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("#### 🏷️ Sample Terms")
         
-        # Show first 50 terms
-        sample_terms = list(vocab.keys())[:50]
-        sample_terms_html = "".join([f'<span class="word-item">{term}</span>' for term in sample_terms])
-        st.markdown(f'<div style="padding: 0.5rem 0;">{sample_terms_html}</div>', unsafe_allow_html=True)
+        if vocab:
+            # Show first 50 terms
+            sample_terms = list(vocab.keys())[:50]
+            sample_terms_html = "".join([f'<span class="word-item">{term}</span>' for term in sample_terms])
+            st.markdown(f'<div style="padding: 0.5rem 0;">{sample_terms_html}</div>', unsafe_allow_html=True)
+            st.caption("Showing first 50 terms from the vocabulary")
+        else:
+            st.info("No vocabulary available.")
         
-        st.caption("Showing first 50 terms from the vocabulary")
         st.markdown('</div>', unsafe_allow_html=True)
     
     # Additional row for term length distribution
-    st.markdown('<div class="card" style="margin-top: 1rem;">', unsafe_allow_html=True)
-    st.markdown("#### 📏 Term Length Distribution")
-    
-    # Create term length data
-    lengths = [len(word) for word in vocab.keys()]
-    length_df = pd.DataFrame({"Word Length": lengths})
-    
-    fig = px.histogram(
-        length_df,
-        x="Word Length",
-        nbins=20,
-        title="Distribution of Term Lengths",
-        color_discrete_sequence=["#2ecc71"]
-    )
-    fig.update_layout(
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        xaxis_title="Number of Characters",
-        yaxis_title="Frequency",
-        height=300,
-        showlegend=False,
-    )
-    fig.update_xaxis(gridcolor="#f1f3f5")
-    fig.update_yaxis(gridcolor="#f1f3f5")
-    st.plotly_chart(fig, use_container_width=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+    if vocab:
+        st.markdown('<div class="card" style="margin-top: 1rem;">', unsafe_allow_html=True)
+        st.markdown("#### 📏 Term Length Distribution")
+        
+        # Create term length data
+        lengths = [len(word) for word in vocab.keys()]
+        length_df = pd.DataFrame({"Word Length": lengths})
+        
+        fig = px.histogram(
+            length_df,
+            x="Word Length",
+            nbins=20,
+            title="Distribution of Term Lengths",
+            color_discrete_sequence=["#2ecc71"]
+        )
+        fig.update_layout(
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            xaxis_title="Number of Characters",
+            yaxis_title="Frequency",
+            height=300,
+            showlegend=False,
+        )
+        fig.update_xaxis(gridcolor="#f1f3f5")
+        fig.update_yaxis(gridcolor="#f1f3f5")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# --- Export Section ---
+st.markdown("---")
+col1, col2, col3 = st.columns([1, 1, 1])
+with col2:
+    if vocab:
+        export_df = pd.DataFrame(list(vocab.items()), columns=["Word", "Index"])
+        csv = export_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Vocabulary as CSV",
+            data=csv,
+            file_name="tfidf_vocabulary.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
 
 # Footer
 st.markdown("---")
