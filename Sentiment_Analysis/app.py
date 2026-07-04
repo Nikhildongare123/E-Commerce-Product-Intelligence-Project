@@ -3,15 +3,7 @@ import pickle
 import numpy as np
 import pandas as pd
 import re
-import matplotlib.pyplot as plt
 from collections import Counter
-
-# Try to import plotly, fallback to matplotlib if not available
-try:
-    import plotly.express as px
-    HAS_PLOTLY = True
-except ImportError:
-    HAS_PLOTLY = False
 
 # Page configuration
 st.set_page_config(
@@ -121,6 +113,37 @@ st.markdown("""
         background-color: #f1f3f5 !important;
         color: #1a1a2e !important;
         font-weight: 600 !important;
+    }
+    
+    /* Progress bar for IDF */
+    .idf-bar-container {
+        background: #e9ecef;
+        border-radius: 4px;
+        height: 6px;
+        margin: 4px 0;
+        overflow: hidden;
+    }
+    
+    .idf-bar {
+        background: #4a90d9;
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s;
+    }
+    
+    .frequency-bar-container {
+        background: #e9ecef;
+        border-radius: 4px;
+        height: 8px;
+        margin: 2px 0;
+        overflow: hidden;
+    }
+    
+    .frequency-bar {
+        background: #2ecc71;
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -306,7 +329,7 @@ with tab1:
 # --- Tab 2: Word Weights ---
 with tab2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown("#### 📊 IDF Weights Distribution")
+    st.markdown("#### 📊 IDF Weights")
     
     idf_values = get_idf_values(vectorizer)
     
@@ -324,34 +347,53 @@ with tab2:
         
         idf_df = idf_df.sort_values("IDF", ascending=False)
         
-        col1, col2 = st.columns([2, 1])
+        # Display IDF statistics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Min IDF", f"{idf_df['IDF'].min():.3f}")
+        with col2:
+            st.metric("Max IDF", f"{idf_df['IDF'].max():.3f}")
+        with col3:
+            st.metric("Mean IDF", f"{idf_df['IDF'].mean():.3f}")
+        
+        st.markdown("---")
+        
+        # Show top terms with bar visualization
+        col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("#### 📈 IDF Distribution")
+            st.markdown("#### ⬆️ Most Important (High IDF)")
+            top_idf = idf_df.nlargest(20, "IDF")
+            max_idf = top_idf["IDF"].max()
             
-            # Use matplotlib for histogram
-            fig, ax = plt.subplots(figsize=(10, 4))
-            ax.hist(idf_df["IDF"], bins=30, color='#4a90d9', edgecolor='white', alpha=0.8)
-            ax.set_xlabel("IDF Score")
-            ax.set_ylabel("Frequency")
-            ax.set_title("Distribution of IDF Values")
-            ax.grid(True, alpha=0.3)
-            ax.set_facecolor('#f8f9fa')
-            fig.patch.set_facecolor('white')
-            st.pyplot(fig)
-            plt.close()
+            for _, row in top_idf.iterrows():
+                pct = (row["IDF"] / max_idf) * 100
+                st.markdown(f"""
+                <div style="margin-bottom: 4px;">
+                    <span style="font-size: 0.85rem;">`{row['Word']}`</span>
+                    <span style="float: right; font-size: 0.8rem; color: #6c757d;">{row['IDF']:.3f}</span>
+                    <div class="idf-bar-container">
+                        <div class="idf-bar" style="width: {pct}%;"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
         
         with col2:
-            st.markdown("#### ⬆️ Most Important Terms (High IDF)")
-            top_idf = idf_df.nlargest(15, "IDF")
-            for _, row in top_idf.iterrows():
-                st.markdown(f"`{row['Word']}` → {row['IDF']:.3f}")
+            st.markdown("#### ⬇️ Least Important (Low IDF)")
+            bottom_idf = idf_df.nsmallest(20, "IDF")
+            max_idf = bottom_idf["IDF"].max() if bottom_idf["IDF"].max() > 0 else 1
             
-            st.markdown("---")
-            st.markdown("#### ⬇️ Least Important Terms (Low IDF)")
-            bottom_idf = idf_df.nsmallest(15, "IDF")
             for _, row in bottom_idf.iterrows():
-                st.markdown(f"`{row['Word']}` → {row['IDF']:.3f}")
+                pct = (row["IDF"] / max_idf) * 100 if max_idf > 0 else 0
+                st.markdown(f"""
+                <div style="margin-bottom: 4px;">
+                    <span style="font-size: 0.85rem;">`{row['Word']}`</span>
+                    <span style="float: right; font-size: 0.8rem; color: #6c757d;">{row['IDF']:.3f}</span>
+                    <div class="idf-bar-container">
+                        <div class="idf-bar" style="width: {pct}%;"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
     else:
         st.info("ℹ️ IDF weights are not available in this vectorizer.")
     
@@ -450,22 +492,31 @@ with tab4:
         
         st.markdown('</div>', unsafe_allow_html=True)
     
+    # Term length distribution using Streamlit's built-in components
     if vocab:
         st.markdown('<div class="card" style="margin-top: 1rem;">', unsafe_allow_html=True)
         st.markdown("#### 📏 Term Length Distribution")
         
+        # Calculate length distribution
         lengths = [len(word) for word in vocab.keys()]
+        length_counts = Counter(lengths)
+        length_df = pd.DataFrame([
+            {"Length": k, "Count": v} for k, v in sorted(length_counts.items())
+        ])
         
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.hist(lengths, bins=20, color='#2ecc71', edgecolor='white', alpha=0.8)
-        ax.set_xlabel("Number of Characters")
-        ax.set_ylabel("Frequency")
-        ax.set_title("Distribution of Term Lengths")
-        ax.grid(True, alpha=0.3)
-        ax.set_facecolor('#f8f9fa')
-        fig.patch.set_facecolor('white')
-        st.pyplot(fig)
-        plt.close()
+        # Display as a bar chart using st.bar_chart
+        if not length_df.empty:
+            # Show as a bar chart
+            st.bar_chart(length_df.set_index("Length"), height=300)
+            
+            # Show statistics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Min Length", min(lengths))
+            with col2:
+                st.metric("Max Length", max(lengths))
+            with col3:
+                st.metric("Average Length", f"{np.mean(lengths):.1f}")
         
         st.markdown('</div>', unsafe_allow_html=True)
 
