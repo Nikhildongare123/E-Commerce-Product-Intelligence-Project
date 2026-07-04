@@ -6,6 +6,8 @@ import re
 import joblib
 import io
 import os
+import subprocess
+import sys
 from sklearn.feature_extraction.text import CountVectorizer
 
 # Page configuration
@@ -134,12 +136,38 @@ def main():
     
     # Check if model files exist
     if not os.path.exists('sentiment_model.pkl') or not os.path.exists('vectorizer.pkl'):
-        st.error("❌ Model files not found!")
-        st.info("Please run the following command to create the model files:")
-        st.code("python extract_model.py")
-        st.write("This will create:")
-        st.write("- sentiment_model.pkl - The trained Naive Bayes model")
-        st.write("- vectorizer.pkl - The text vectorizer")
+        st.warning("⚠️ Model files not found!")
+        
+        # Check if extract_model.py exists
+        if os.path.exists('extract_model.py'):
+            st.info("🔄 Running model training script... This may take a minute.")
+            
+            try:
+                # Try to import the extract_model module and run it
+                import extract_model
+                extract_model.create_model_from_reviews()
+                st.success("✅ Model created successfully! Reloading...")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error creating model: {e}")
+                st.code(f"Error: {str(e)}")
+                
+                # Manual instructions
+                st.markdown("### Please run the following command in your terminal:")
+                st.code("python extract_model.py")
+                st.write("This will create:")
+                st.write("- sentiment_model.pkl - The trained Naive Bayes model")
+                st.write("- vectorizer.pkl - The text vectorizer")
+                
+                # Show current directory
+                st.write("**Current directory:**", os.getcwd())
+                st.write("**Files:**", os.listdir('.'))
+        else:
+            st.error("❌ extract_model.py not found!")
+            st.info("Please make sure extract_model.py is in the same directory.")
+            st.write("**Current directory:**", os.getcwd())
+            st.write("**Files:**", os.listdir('.'))
+        
         return
     
     # Load model and vectorizer
