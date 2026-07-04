@@ -1,17 +1,14 @@
-# 🛒 E-Commerce Customer Analytics Platform
-An end-to-end data analytics and machine learning solution for e-commerce customer insights, featuring comprehensive data analysis, sentiment analysis, and predictive modeling.
-# 📁 Project Structure
 E-COMMERCE-PROJECT/
 │
-├── dataset/                          # Raw data files
-│   ├── interactions.csv
-│   ├── products.csv
-│   ├── purchases.csv
-│   ├── reviews.csv
-│   ├── sessions.csv
-│   └── users.csv
+├── 📂 dataset/                              # Raw data files
+│   ├── interactions.csv                     # User-product interactions
+│   ├── products.csv                         # Product catalog
+│   ├── purchases.csv                        # Transaction records
+│   ├── reviews.csv                          # Product reviews
+│   ├── sessions.csv                         # User session logs
+│   └── users.csv                            # User demographics
 │
-├── cleaned_data/                     # Preprocessed datasets
+├── 📂 cleaned_data/                         # Preprocessed datasets
 │   ├── interactions_cleaned.csv
 │   ├── products_cleaned.csv
 │   ├── purchases_cleaned.csv
@@ -19,7 +16,7 @@ E-COMMERCE-PROJECT/
 │   ├── sessions_cleaned.csv
 │   └── users_cleaned.csv
 │
-├── Notebook/                         # Data understanding & EDA notebooks
+├── 📂 Notebook/                             # Data understanding & EDA
 │   ├── 01_Data_Understanding_users.ipynb
 │   ├── 02_Data_Understanding_Products.ipynb
 │   ├── 03_EDA_Products.ipynb
@@ -28,15 +25,14 @@ E-COMMERCE-PROJECT/
 │   ├── 06_Data_Understanding_interactions.ipynb
 │   └── 07_Data_Understanding_reviews.ipynb
 │
-├── Customer_Analytics/               # Customer analytics module
-│   └── Customer_analytics.ipynb
+├── 📂 Customer_Analytics/                   # Customer analytics module
+│   └── Customer_analytics.ipynb             # RFM, CLV, churn analysis
 │
-├── Sentiment_Analysis/               # Sentiment analysis module
-│   ├── Sentiment_Analysis.ipynb
-│   ├── sentiment_model.pkl
-│   ├── tfidf.pkl
-│   └── README.md
+├── 📂 Sentiment_Analysis/                   # NLP sentiment analysis
+│   ├── Sentiment_Analysis.ipynb             # Model training notebook
+│   ├── sentiment_model.pkl                  # Trained classifier
+│   ├── tfidf.pkl                            # TF-IDF vectorizer
+│   └── README.md                            # Model documentation
 │
-└── database_mysql/                   # Database management
-    └── create_database_mysql.py
-
+└── 📂 database_mysql/                       # Database management
+    └── create_database_mysql.py             # MySQL schema & data import
