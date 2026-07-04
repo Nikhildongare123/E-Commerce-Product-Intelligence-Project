@@ -1,24 +1,4 @@
-# Core Data Science Libraries
-numpy
-pandas
-scikit-learn
-
-# Streamlit App
 streamlit
-plotly
-matplotlib
-
-# Text Processing
-nltk
-textblob
-
-# File Handling
-joblib
-pickle5  # For Python 3.7+ compatibility
-
-# Data Visualization
-seaborn
-
-# Utilities
-python-dotenv
-tqdm
+pandas
+numpy
+scikit-learn
