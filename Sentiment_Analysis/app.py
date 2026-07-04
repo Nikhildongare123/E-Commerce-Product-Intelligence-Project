@@ -1,83 +1,80 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
 import pickle
-import re
 import joblib
-import io
+import pandas as pd
+import re
 from sklearn.feature_extraction.text import CountVectorizer
-
-# Load the model
-@st.cache_resource
-def load_model():
-    try:
-        model = joblib.load('sentiment_model.pkl')
-        return model
-    except Exception as e:
-        st.error(f"Error loading model: {e}")
-        return None
-
-# Load vectorizer
-@st.cache_resource
-def load_vectorizer():
-    try:
-        with open('vectorizer.pkl', 'rb') as f:
-            vectorizer = pickle.load(f)
-        return vectorizer
-    except FileNotFoundError:
-        st.error("❌ Vectorizer file 'vectorizer.pkl' not found!")
-        st.info("Please run 'python extract_model.py' first to create the model files.")
-        return None
+from sklearn.naive_bayes import MultinomialNB
 
 # Clean text function
 def clean_text(text):
     if not isinstance(text, str):
         return ""
-    
-    # Convert to lowercase
     text = text.lower()
-    
-    # Remove special characters and digits
     text = re.sub(r'[^a-zA-Z\s]', '', text)
-    
-    # Remove extra whitespace
     text = re.sub(r'\s+', ' ', text).strip()
-    
     return text
 
-# Predict function
-def predict_sentiment(text, model, vectorizer):
-    if model is None or vectorizer is None:
-        return None, None
+def create_model_from_reviews():
+    print("Loading reviews data...")
+    # Load the reviews data
+    df = pd.read_csv('reviews_cleaned.csv')
     
-    # Clean the text
-    cleaned_text = clean_text(text)
+    # Prepare the data
+    print("Preparing data...")
+    df['cleaned_text'] = df['review_text'].apply(clean_text)
     
-    # Vectorize
-    text_vectorized = vectorizer.transform([cleaned_text])
+    # Map ratings to sentiment
+    # 1-2: negative, 3: neutral, 4-5: positive
+    def rating_to_sentiment(rating):
+        if rating <= 2:
+            return 'negative'
+        elif rating == 3:
+            return 'neutral'
+        else:
+            return 'positive'
     
-    # Predict
-    pred = model.predict(text_vectorized)
-    proba = model.predict_proba(text_vectorized)
+    df['sentiment'] = df['rating'].apply(rating_to_sentiment)
     
-    # Get class names
-    class_names = model.classes_
-    pred_label = class_names[pred[0]]
-    pred_prob = np.max(proba[0])
+    # Create and fit vectorizer
+    print("Creating vectorizer...")
+    vectorizer = CountVectorizer(max_features=5000, stop_words='english')
+    X = vectorizer.fit_transform(df['cleaned_text'])
+    y = df['sentiment']
     
-    return pred_label, pred_prob
+    # Train model
+    print("Training model...")
+    model = MultinomialNB()
+    model.fit(X, y)
+    
+    # Save model and vectorizer
+    print("Saving model...")
+    joblib.dump(model, 'sentiment_model.pkl')
+    
+    print("Saving vectorizer...")
+    with open('vectorizer.pkl', 'wb') as f:
+        pickle.dump(vectorizer, f)
+    
+    print("Model and vectorizer saved successfully!")
+    print(f"Model classes: {model.classes_}")
+    print(f"Vectorizer features: {len(vectorizer.get_feature_names_out())}")
+    
+    # Test the model
+    test_texts = [
+        "This product is amazing! I love it!",
+        "It's okay, nothing special.",
+        "Terrible quality, waste of money."
+    ]
+    
+    print("\nTesting model:")
+    for text in test_texts:
+        cleaned = clean_text(text)
+        X_test = vectorizer.transform([cleaned])
+        pred = model.predict(X_test)[0]
+        prob = model.predict_proba(X_test)
+        print(f"Text: {text}")
+        print(f"Predicted: {pred}")
+        print(f"Confidence: {max(prob[0]):.2%}")
+        print("-" * 40)
 
-# Main app
-def main():
-    st.set_page_config(page_title="Sentiment Analysis App", page_icon="📊", layout="wide")
-    
-    st.title("📊 Sentiment Analysis App")
-    st.markdown("Analyze sentiment of product reviews using a trained Naive Bayes model.")
-    
-    # Check if model files exist
-    import os
-    if not os.path.exists('sentiment_model.pkl') or not os.path.exists('vectorizer.pkl'):
-        st.error("""
-        ❌ **Model files not found!**
-        
-        Please run the following command first to create the model:
+if __name__ == "__main__":
+    create_model_from_reviews()
